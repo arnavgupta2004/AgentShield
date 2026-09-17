@@ -77,16 +77,30 @@ npm run dev -- --port 5173
 
 Open `http://localhost:5173`. The Vite dev server proxies `/api` and
 `/ws` to `http://127.0.0.1:8000` (see `frontend/vite.config.ts`), so run
-the backend first.
+the backend first. If `frontend/.env.development`'s `VITE_AWS_API_BASE_URL`
+is set (it is, by default — see §3), the Live Demo system selector also
+offers **"AWS Lambda (live)"**, which evaluates the selected fixture
+against the real deployed endpoint instead of the local engine (single
+request/response, no streaming, since the Lambda has no WebSocket route)
+— proxied via `/aws-api` so the browser's request stays same-origin (the
+deployed API has no CORS headers for a browser to call it directly).
 
 ## 3. AWS deployment instructions
 
 See [infra/DEPLOY.md](infra/DEPLOY.md) for full `sam build` / `sam deploy`
 / invoke / teardown instructions, the architecture diagram, and an
 explicit list of what's provisioned but intentionally not wired in this
-build (EventBridge, DynamoDB-backed policy hot-reload). Not deployed to
-a live AWS account from this environment — deploying is a billed,
-account-affecting action left to you.
+build (EventBridge, DynamoDB-backed policy hot-reload).
+
+**Currently deployed** (`ap-south-1`, deployed 2026-09-17):
+`https://y30b9w0d58.execute-api.ap-south-1.amazonaws.com/prod` — not a
+secret (an API Gateway invoke URL carries no credentials or account ID).
+Recheck it any time with `python infra/smoke_test.py --url <that URL> --all`
+(30/30 passing as of this writing — see `infra/DEPLOY.md`'s "Smoke test
+after deploy" section for details and exact output). The single
+`VITE_AWS_API_BASE_URL` value in `frontend/.env.development` /
+`.env.production` is the only place this URL is configured for the
+frontend — see §2's frontend note.
 
 ## 4. Test results (actual output)
 
@@ -291,10 +305,16 @@ README).
 
 ## 12. Remaining issues needing manual attention before the demo
 
-- AWS stack has not been deployed (no credentials in this environment) —
-  run `infra/DEPLOY.md`'s steps yourself before relying on a live URL
-  for the demo; the local FastAPI + Vite path is fully verified and is
-  the safer default for the recorded run-through.
+- AWS stack is now deployed (`ap-south-1`, see §3) and passes a 30/30
+  smoke test against the live endpoint (`infra/smoke_test.py --all`,
+  byte-identical to the local engine's own output for every fixture).
+  The local FastAPI + Vite path remains the fuller demo experience (live
+  streaming graph, baseline comparison, benchmark view) since the
+  deployed Lambda only exposes the single evaluate endpoint — no
+  EventBridge/streaming, no baseline selection, no benchmark endpoint
+  (see `infra/DEPLOY.md`'s "Known limitations"). Use the frontend's new
+  "AWS Lambda (live)" system option to demo the real deployment
+  specifically, and the local systems for everything else.
 - No CI workflow file is included (e.g. GitHub Actions running `pytest`
   on push) — worth adding before the submission deadline if judges will
   look for it, but was out of the strict build-priority order (spec

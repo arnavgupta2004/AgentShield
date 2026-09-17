@@ -21,3 +21,6 @@ npm-debug.log*
 
 .env
 .env.local
+
+infra/.aws-sam/
+infra/samconfig.toml

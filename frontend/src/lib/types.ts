@@ -8,6 +8,32 @@ export interface FixtureSummary {
   num_calls: number
 }
 
+export interface FixtureCall {
+  tool: string
+  resource_id: string | null
+  vendor_id: string | null
+  period: string | null
+  provenance: string | null
+  recipient: string | null
+  payload_refs: string[]
+  params: Record<string, unknown>
+}
+
+export interface FixtureDetail {
+  session_id: string
+  category: string
+  expected_label: 'ALLOW' | 'BLOCK'
+  expected_conflict_class: string | null
+  calls: FixtureCall[]
+}
+
+export interface EvaluateResponse {
+  session_id: string
+  final_decision: Decision
+  matched_conflict_class: string | null
+  traces: Trace[]
+}
+
 export interface ConflictClassMatch {
   conflict_class: string
   member_compartments_involved: string[]

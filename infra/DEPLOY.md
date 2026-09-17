@@ -48,6 +48,27 @@ curl -X POST "$(aws cloudformation describe-stacks \
       }'
 ```
 
+## Smoke test after deploy (or any time, to recheck a live deployment)
+
+`infra/smoke_test.py` hits the real deployed API with real fixtures from
+`fixtures/sessions.py` (never invented payloads) and checks the response
+against both the fixture's own expected label AND the local engine's live
+output for the identical input -- so it catches both "the deployment
+disagrees with the benchmark" and "the deployment is running a stale
+build" regressions. No AWS credentials needed -- it's a plain HTTPS
+client hitting the public API Gateway URL, same as any caller.
+
+```bash
+source .venv/bin/activate
+python infra/smoke_test.py --url https://<api-id>.execute-api.<region>.amazonaws.com/prod
+python infra/smoke_test.py --url ... --all     # all 30 fixtures instead of the default 6
+```
+
+Exit code is non-zero on any mismatch, so it's safe to script/CI later.
+Verified 2026-09-17 against the `ap-south-1` deployment: 30/30 fixtures
+match both the fixture's expected label and the local engine's live
+output, byte-for-byte on decision and matched conflict class.
+
 ## Teardown
 
 ```bash

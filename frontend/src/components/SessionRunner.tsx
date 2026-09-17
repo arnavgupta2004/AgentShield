@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
-import { fetchFixtures, fetchSystems, streamSession } from '../lib/api'
+import { AWS_API_BASE_URL, evaluateOnAws, fetchFixtureDetail, fetchFixtures, fetchSystems, streamSession } from '../lib/api'
 import type { CallEvent, Decision, FixtureSummary, Trace } from '../lib/types'
 import GraphView from './GraphView'
 import CompartmentTally from './CompartmentTally'
 import DecisionBanner from './DecisionBanner'
 
 const POLICY_VARIANTS = ['full', 'vendor_only']
+const AWS_SYSTEM = 'AWS Lambda (live)'
+const SINK_TOOLS = new Set(['create_draft_payment', 'send_notification'])
 
 export default function SessionRunner() {
   const [fixtures, setFixtures] = useState<FixtureSummary[]>([])
@@ -37,12 +39,56 @@ export default function SessionRunner() {
     return acc
   }, {})
 
+  const allSystems = AWS_API_BASE_URL ? [...systems, AWS_SYSTEM] : systems
+
+  async function runOnAws() {
+    const fixture = await fetchFixtureDetail(sessionId)
+    setExpectedLabel(fixture.expected_label)
+
+    const response = await evaluateOnAws(sessionId, fixture.calls)
+    const traceByCallId = new Map(response.traces.map((t) => [t.call_id, t]))
+
+    // The deployed Lambda has no streaming route, so this renders the
+    // whole (real, backend-computed) result at once rather than
+    // node-by-node -- every value below comes from `response`, none of
+    // it is computed client-side.
+    const builtCalls: CallEvent[] = fixture.calls.map((c, i) => {
+      const callId = `${sessionId}-c${i + 1}`
+      const isSink = SINK_TOOLS.has(c.tool)
+      const trace = traceByCallId.get(callId) ?? null
+      return {
+        type: 'call',
+        call_id: callId,
+        tool: c.tool,
+        resource_id: c.resource_id,
+        vendor_id: c.vendor_id,
+        period: c.period,
+        recipient: c.recipient,
+        is_sink: isSink,
+        compartment_tags: {},
+        decision: trace?.decision ?? 'ALLOW',
+        trace,
+      }
+    })
+    setCalls(builtCalls)
+    const lastSink = [...builtCalls].reverse().find((c) => c.is_sink)
+    if (lastSink) setSelectedCallId(lastSink.call_id)
+    setFinalDecision(response.final_decision)
+  }
+
   function run() {
     closeRef.current?.()
     setCalls([])
     setSelectedCallId(null)
     setFinalDecision(null)
     setRunning(true)
+
+    if (system === AWS_SYSTEM) {
+      runOnAws()
+        .catch((err) => alert(err instanceof Error ? err.message : String(err)))
+        .finally(() => setRunning(false))
+      return
+    }
 
     closeRef.current = streamSession(
       sessionId,
@@ -92,7 +138,7 @@ export default function SessionRunner() {
         <label>
           System
           <select value={system} onChange={(e) => setSystem(e.target.value)}>
-            {systems.map((s) => (
+            {allSystems.map((s) => (
               <option key={s} value={s}>{s}</option>
             ))}
           </select>
@@ -100,7 +146,12 @@ export default function SessionRunner() {
 
         <label>
           Policy
-          <select value={policyVariant} onChange={(e) => setPolicyVariant(e.target.value)}>
+          <select
+            value={policyVariant}
+            onChange={(e) => setPolicyVariant(e.target.value)}
+            disabled={system === AWS_SYSTEM}
+            title={system === AWS_SYSTEM ? 'The deployed Lambda always uses its bundled full policy' : undefined}
+          >
             {POLICY_VARIANTS.map((p) => (
               <option key={p} value={p}>{p}</option>
             ))}
@@ -116,6 +167,8 @@ export default function SessionRunner() {
             step={50}
             value={delayMs}
             onChange={(e) => setDelayMs(Number(e.target.value))}
+            disabled={system === AWS_SYSTEM}
+            title={system === AWS_SYSTEM ? 'AWS Lambda has no streaming route -- result arrives all at once' : undefined}
           />
         </label>
 
