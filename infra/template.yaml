@@ -1,0 +1,94 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  AgentShield -- deterministic, rule-based session-evaluation API.
+  Cost-conscious "Ship It" architecture: API Gateway -> Lambda (the
+  engine itself; no GPU/inference cost, nothing per-token) with
+  DynamoDB for the policy registry and CloudWatch for the decision
+  audit log. See DEPLOY.md for what is and isn't wired in this build.
+
+Globals:
+  Function:
+    Timeout: 10
+    MemorySize: 256
+    Runtime: python3.12
+
+Resources:
+  EvaluateSessionFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Handler: infra/lambda_handler.handler
+      CodeUri: ../
+      Description: Deterministic session evaluation (same engine as api/main.py)
+      Environment:
+        Variables:
+          POLICY_TABLE_NAME: !Ref PolicyTable
+      Policies:
+        - DynamoDBReadPolicy:
+            TableName: !Ref PolicyTable
+      Events:
+        Evaluate:
+          Type: Api
+          Properties:
+            RestApiId: !Ref AgentShieldApi
+            Path: /sessions/{sessionId}/evaluate
+            Method: post
+
+  AgentShieldApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: prod
+      TracingEnabled: true
+
+  # Intended production home for policy/*.yaml's content (conflict
+  # classes, clearance thresholds). Provisioned here so the schema and
+  # IAM wiring are real and reviewable; the bundled hackathon Lambda
+  # currently reads the equivalent data from the YAML files packaged
+  # alongside the code instead of this table at request time -- see
+  # DEPLOY.md "Known limitations" for why, and what reading from this
+  # table at cold-start would require.
+  PolicyTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+
+  # Intended production home for per-session graph state in an
+  # incremental architecture (one API call per tool call, rather than
+  # this build's one-call-per-complete-trajectory shape). Not written
+  # to by EvaluateSessionFunction in this build -- see DEPLOY.md.
+  SessionGraphTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: session_id
+          AttributeType: S
+        - AttributeName: call_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: session_id
+          KeyType: HASH
+        - AttributeName: call_id
+          KeyType: RANGE
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+Outputs:
+  ApiUrl:
+    Description: Invoke URL for POST /sessions/{sessionId}/evaluate
+    Value: !Sub "https://${AgentShieldApi}.execute-api.${AWS::Region}.amazonaws.com/prod/"
+  PolicyTableName:
+    Value: !Ref PolicyTable
+  SessionGraphTableName:
+    Value: !Ref SessionGraphTable

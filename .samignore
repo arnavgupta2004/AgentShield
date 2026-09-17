@@ -1,0 +1,7 @@
+.venv/
+frontend/
+tests/
+benchmark/results/
+.git/
+*.pyc
+__pycache__/
