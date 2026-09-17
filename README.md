@@ -1,5 +1,118 @@
 # AgentShield
 
+**Composition-aware runtime authorization for autonomous AI agents.**
+Built for WeMakeDevs "First Commit" (Sept 17–20, 2026), team AlphaBetaPi.
+
+## TL;DR
+
+- **What it is:** a deterministic, rule-based runtime authorization layer
+  that watches an AI agent's tool calls *as a session*, not one request at
+  a time.
+- **The problem it solves:** an agent can make many individually-authorized
+  tool calls that, combined, synthesize a capability nobody actually
+  approved — no single call, and no single permission check, was ever
+  violated. Standard RBAC/point-rule authorization can't see this because
+  it only ever evaluates one request in isolation.
+- **What we demonstrated:** two concrete, realistic attack patterns
+  against a 6-tool AP/procurement agent, caught **12/12** with **0 false
+  positives** across a 30-session benchmark — evaluated against two honest
+  baselines (a naive system that catches nothing, and a real, well-
+  configured point-rule that catches one attack and structurally misses
+  the other), not just against itself.
+- **Deployed on AWS, right now:** API Gateway → Lambda running the exact
+  same engine, live in `ap-south-1` — see the screenshot below and §3.
+- **Verified benchmark result:** see the table in §5; real output, not
+  invented numbers, committed at `benchmark/results/`.
+
+![AgentShield blocking a cross-vendor pricing aggregation attack, with the live session graph and compartment tally](docs/screenshots/01-attack1-block.png)
+
+## Why this scores against the hackathon criteria
+
+**Idea & Impact.** Aggregation-inference is a real, classical access-control
+problem (database security literature, the "mosaic effect" in classified-
+information handling) that becomes newly urgent with autonomous agents,
+because an agent makes *many* individually-authorized calls per session
+and nothing in standard RBAC reasons about the session as a whole. Concrete
+stakes: a procurement agent that reads a few invoices and sends one
+notification — every call legitimate — could still hand one recipient a
+full year's vendor spend picture or a side-by-side vendor pricing
+comparison nobody approved. AgentShield is a working, evaluated defense
+against that, not a whitepaper claim — see §8 for the full threat model.
+
+**Built on AWS.** API Gateway → Lambda running the identical deterministic
+Python engine (no GPU/inference cost — nothing here needs one), with
+DynamoDB provisioned for the intended production policy/session-state
+architecture. Not a mockup: it's deployed and live right now in
+`ap-south-1`, and 30/30 benchmark fixtures are byte-identical between the
+local engine and the deployed Lambda (§3, §7, §13). The frontend's "AWS
+Lambda (live)" option calls it directly, on stage, in real time.
+
+**Learning.** Building the two baselines ourselves, then adversarially
+auditing our own engine before deployment, surfaced real lessons about
+what "generic" and "fair comparison" actually require in practice — not
+lessons we're asserting, lessons we hit and fixed. See **What We Learned**
+below.
+
+**Execution.** A 30-session benchmark with real, committed (not
+fabricated) results; 37 automated tests, including adversarial false-
+positive and graph-logic probes added during a self-audit that found and
+fixed a genuine (if narrow) bug before deployment; two honest baselines
+that don't inflate AgentShield's results; and a live AWS deployment
+verified byte-identical to local, rechecked with a reusable smoke-test
+script. See §4, §5, §13.
+
+## What We Learned
+
+1. **Composition-aware authorization is a genuinely different problem
+   from per-call authorization, not a harder version of the same thing.**
+   Baseline-Naive — which checks only that each individual call is
+   authorized — catches **0 of 12** attack sessions, because every call
+   really is individually legitimate. Baseline-Strong, a real single-rule
+   point-evaluator, catches the attack it has a rule for (6/6) and
+   structurally cannot see the other (0/6) — not because the rule is
+   badly written, but because a per-request evaluator never looks at more
+   than one request. Building both weak baselines ourselves is what made
+   this distinction concrete instead of assumed.
+
+2. **A "generic" graph-linkage rule needs to be exactly as generic as
+   it's been proven to be — no more.** Our own pre-deployment audit found
+   that `engine/graph.py`'s ancestor-linkage fallback was hardcoded to the
+   `vendor_id` attribute instead of being policy-declared — a narrow but
+   real violation of "no domain concept hardcoded in the engine." Before
+   fixing it, we tested the obvious broader fix (link any two nodes
+   sharing *any* policy-keyed attribute) and found it introduces a false
+   positive of its own: two different vendors' invoices that merely fall
+   in the same fiscal quarter would wrongly merge into one ancestor
+   closure and trigger a false BLOCK. We shipped a narrower, policy-
+   declared fix instead (§13). Lesson: over-generalizing a security rule
+   can silently reintroduce the same class of bug — unwanted aggregation
+   — that the whole system exists to catch.
+
+3. **Precise language matters even for a baseline that's deliberately
+   weaker on purpose.** Baseline-Strong's own docstring called itself
+   fully "stateless," but it actually accumulates a resource→vendor
+   lookup across a session's calls. Harmless in itself, but for a project
+   whose entire argument rests on a fair baseline comparison, imprecise
+   self-description is a real risk — it invites the question "is it
+   secretly doing session tracking too?" We reworded it for accuracy and
+   pinned its thresholds against the real policy file with a regression
+   test, so the comparison can't silently drift unfair as the code
+   changes.
+
+4. **Determinism and explainability were the actual reason to keep this
+   rule-based instead of statistical, not just a constraint to satisfy.**
+   Every BLOCK needs a structured, reproducible trace — matched conflict
+   class, member compartments, count vs. threshold — that a reviewer can
+   check line by line. That's also the only reason the policy-data-vs-
+   code proof in §13 means anything at all: swapping a YAML file and
+   re-running the *identical* function, expecting byte-identical output,
+   only demonstrates something because there's no hidden model state that
+   could vary between runs. A statistical anomaly score couldn't support
+   that proof structure, which is why an LLM/ML component was never on
+   the table for the decision path itself.
+
+---
+
 A working, evaluated, deterministic reference implementation of a defense
 against **aggregation-inference in autonomous agent sessions**: cases
 where an agent's individually-authorized tool calls, linked by shared
@@ -16,8 +129,6 @@ recently re-formalized for multi-agent AI authorization and explicitly
 noted as unsolved in deployed systems. AgentShield's contribution is a
 working, tested, *evaluated* reference implementation of a defense
 against this specific, well-scoped problem — not a discovery claim.
-
-Built for WeMakeDevs "First Commit" (Sept 17–20, 2026), team AlphaBetaPi.
 
 ```
 trajectory → resource linkage → compartment derivation →
@@ -102,6 +213,8 @@ after deploy" section for details and exact output). The single
 `.env.production` is the only place this URL is configured for the
 frontend — see §2's frontend note.
 
+![The frontend's "AWS Lambda (live)" option evaluating Attack 1 against the real deployed endpoint — same BLOCK, same trace as the local engine](docs/screenshots/03-aws-lambda-live.png)
+
 ## 4. Test results (actual output)
 
 ```
@@ -142,6 +255,8 @@ Real output from `python -m benchmark.runner`, committed at
 | Baseline-Naive | 0 | 0 | 18 | 12 | 1.00 | 0.00 | 0.00 | 0% |
 | Baseline-Strong | 6 | 0 | 18 | 6 | 1.00 | 0.50 | 0.667 | 0% |
 | **AgentShield** | **12** | **0** | **18** | **0** | **1.00** | **1.00** | **1.00** | **0%** |
+
+![The frontend's Benchmark view showing the same comparison table live against the running backend, plus the Baseline-Strong Attack-2-miss row called out](docs/screenshots/02-benchmark-comparison.png)
 
 ## 6. Baseline comparison table — per-attack breakdown
 
@@ -280,19 +395,24 @@ policy-variant selector) and Benchmark tab:
    watch it ALLOW live.
 3. Same fixture, system = **AgentShield** → run → BLOCK, trace + tally
    table shown (member compartments, count vs. threshold).
-4. Select an `attack2-*` fixture, system = **Baseline-Strong** → run →
+4. Same fixture again, system = **AWS Lambda (live)** → run → the same
+   BLOCK, same trace — this time from the real deployed endpoint in
+   `ap-south-1`, not the local process. Narrate: this is the live AWS
+   deployment answering in real time, byte-identical to what the local
+   engine just showed (verified across all 30 fixtures — §7, §13).
+5. Select an `attack2-*` fixture, system = **Baseline-Strong** → run →
    ALLOWED (misses it) — narrate: a real, well-configured rule that
    simply was never given a quarter-aware conflict class.
-5. Same fixture, system = **AgentShield**, policy = **full** → BLOCK.
+6. Same fixture, system = **AgentShield**, policy = **full** → BLOCK.
    Switch policy to **vendor_only** and re-run the same fixture on
    AgentShield → ALLOW — same binary, only the policy file changed (see
    `policy/variants/vendor_only/`); zero lines of `engine/` differ
    (`tests/test_policy_data_not_code.py` proves this in CI).
-6. Run a `benign-high-clearance-*` fixture live → correctly ALLOWED
+7. Run a `benign-high-clearance-*` fixture live → correctly ALLOWED
    (same 2-vendor shape as Attack 1, but the recipient is cleared).
-7. Switch to the Benchmark tab → show the 30-session comparison table
+8. Switch to the Benchmark tab → show the 30-session comparison table
    and the Baseline-Strong Attack-2 row called out explicitly.
-8. Brief flash of `infra/template.yaml`'s architecture, close.
+9. Brief flash of `infra/template.yaml`'s architecture, close.
 
 ## 11. Files created
 
