@@ -52,3 +52,27 @@ def run_session(
             final = Decision.ESCALATE
 
     return SessionEvalResult(session_id=session_id, final_decision=final, traces=traces)
+
+
+def stream_session(specs: Iterable[ToolCallSpec], session_id: str, policy: Policy):
+    """Same evaluation as run_session, but yields one event per call as it
+    happens -- what the API's WebSocket layer streams to the frontend for
+    the live-build graph effect."""
+    agent = MockProcurementAgent(session_id)
+    graph = SessionGraph(session_id=session_id, policy=policy)
+
+    for spec in specs:
+        node = agent.build_node(spec)
+        result = evaluate_call(graph, node)
+        yield {
+            "call_id": node.call_id,
+            "tool": node.tool,
+            "resource_id": node.resource_id,
+            "vendor_id": node.vendor_id,
+            "period": node.period,
+            "recipient": node.recipient,
+            "is_sink": node.is_sink,
+            "compartment_tags": dict(node.compartment_tags),
+            "decision": result.decision.value,
+            "trace": result.trace.to_dict() if result.trace else None,
+        }

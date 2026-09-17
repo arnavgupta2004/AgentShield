@@ -49,3 +49,31 @@ def run_session(
 
     final = Decision.BLOCK if any(t.decision == Decision.BLOCK for t in traces) else Decision.ALLOW
     return SessionEvalResult(session_id=session_id, final_decision=final, traces=traces)
+
+
+def stream_session(specs: Iterable[ToolCallSpec], session_id: str, policy: Policy):
+    agent = MockProcurementAgent(session_id)
+    for spec in specs:
+        node = agent.build_node(spec)
+        if not policy.is_sink(node.tool):
+            yield {
+                "call_id": node.call_id, "tool": node.tool, "resource_id": node.resource_id,
+                "vendor_id": node.vendor_id, "period": node.period, "recipient": node.recipient,
+                "is_sink": False, "compartment_tags": {}, "decision": "ALLOW", "trace": None,
+            }
+            continue
+
+        allowed = node.tool in policy.tools and (
+            node.recipient is None or node.recipient in policy.clearances
+        )
+        decision = Decision.ALLOW if allowed else Decision.BLOCK
+        trace = Trace(
+            call_id=node.call_id, session_id=session_id, tool=node.tool,
+            recipient=node.recipient, decision=decision, matches=[], ancestor_call_ids=[],
+        )
+        yield {
+            "call_id": node.call_id, "tool": node.tool, "resource_id": node.resource_id,
+            "vendor_id": node.vendor_id, "period": node.period, "recipient": node.recipient,
+            "is_sink": True, "compartment_tags": {}, "decision": decision.value,
+            "trace": trace.to_dict(),
+        }

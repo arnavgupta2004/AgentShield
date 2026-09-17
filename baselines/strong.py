@@ -71,3 +71,38 @@ def run_session(
 
     final = Decision.BLOCK if any(t.decision == Decision.BLOCK for t in traces) else Decision.ALLOW
     return SessionEvalResult(session_id=session_id, final_decision=final, traces=traces)
+
+
+def stream_session(specs: Iterable[ToolCallSpec], session_id: str, policy: Policy | None = None):
+    agent = MockProcurementAgent(session_id)
+    resource_vendor: dict[str, str] = {}
+
+    for spec in specs:
+        node = agent.build_node(spec)
+        if node.resource_id and node.vendor_id:
+            resource_vendor[node.resource_id] = node.vendor_id
+
+        if node.tool != "send_notification":
+            yield {
+                "call_id": node.call_id, "tool": node.tool, "resource_id": node.resource_id,
+                "vendor_id": node.vendor_id, "period": node.period, "recipient": node.recipient,
+                "is_sink": False, "compartment_tags": {}, "decision": "ALLOW", "trace": None,
+            }
+            continue
+
+        vendors_in_request = {
+            resource_vendor[ref] for ref in spec.payload_refs if ref in resource_vendor
+        }
+        count = len(vendors_in_request)
+        threshold = VENDOR_PRICING_THRESHOLD.get(node.recipient, 0)
+        decision = Decision.BLOCK if count > threshold else Decision.ALLOW
+        trace = Trace(
+            call_id=node.call_id, session_id=session_id, tool=node.tool,
+            recipient=node.recipient, decision=decision, matches=[], ancestor_call_ids=[],
+        )
+        yield {
+            "call_id": node.call_id, "tool": node.tool, "resource_id": node.resource_id,
+            "vendor_id": node.vendor_id, "period": node.period, "recipient": node.recipient,
+            "is_sink": True, "compartment_tags": {}, "decision": decision.value,
+            "trace": trace.to_dict(),
+        }
