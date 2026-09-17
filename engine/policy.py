@@ -37,6 +37,11 @@ class Policy:
     # recipient -> conflict_class -> integer clearance threshold
     clearances: dict[str, dict[str, int]]
     tools: dict[str, ToolSpec]
+    # the single resource attribute treated as "same underlying business
+    # object" for coarse graph linkage (e.g. pulling a search_vendor_db
+    # call into an invoice's ancestor closure even though it carries no
+    # period). Policy DATA, not an engine constant -- see engine/graph.py.
+    linkage_attribute: str | None = None
     source_files: list[str] = field(default_factory=list)
 
     def clearance_for(self, recipient: str, conflict_class: str) -> int:
@@ -107,6 +112,7 @@ def load_policy(policy_dir: str | Path | None = None) -> Policy:
         conflict_classes=conflict_classes,
         clearances=clearances,
         tools=tools,
+        linkage_attribute=cc_raw.get("linkage_attribute"),
         source_files=[str(cc_path), str(clear_path), str(tools_path)],
     )
     _validate(policy)

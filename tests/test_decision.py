@@ -20,6 +20,7 @@ def _policy(margin: int = 0) -> Policy:
             "alex_categorymgr": {"vendor_pricing_confidentiality": 1},
             "finance_director": {"vendor_pricing_confidentiality": 5},
         },
+        linkage_attribute="vendor_id",
         tools={
             "read_invoice": ToolSpec(name="read_invoice", sink=False),
             "send_notification": ToolSpec(name="send_notification", sink=True),

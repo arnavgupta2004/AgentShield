@@ -49,7 +49,7 @@ api/          FastAPI backend: REST + WebSocket, zero authorization logic
               of its own — every endpoint calls into engine/baselines/benchmark
 frontend/     React + Vite + TS: live session-graph demo + benchmark view
 infra/        AWS SAM template + Lambda adapter over the same engine
-tests/        unit + integration tests (16/16 passing — see §4 below)
+tests/        unit + integration tests (37/37 passing — see §4 below)
 ```
 
 ## 2. Local run instructions
@@ -61,7 +61,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-pytest -q                       # 16/16 tests
+pytest -q                       # 37/37 tests
 python -m benchmark.runner      # real 30-session benchmark run, prints JSON + summary
 
 uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
@@ -92,19 +92,29 @@ account-affecting action left to you.
 
 ```
 $ pytest -q
-................                                                         [100%]
-16 passed in 0.03s
+.....................................                                    [100%]
+37 passed, 2 warnings in 0.15s
 ```
 
-Covering (per spec §9): graph-builder linkage/tagging unit tests
-(`tests/test_graph.py`), decision-algorithm unit tests including the
-ESCALATE margin band (`tests/test_decision.py`), the policy-data-not-code
+(The 2 warnings are `starlette`/`httpx` deprecation notices from FastAPI's
+`TestClient`, unrelated to correctness — see `tests/test_api_security.py`.)
+
+Covering (per spec §9, plus a 2026-09-17 adversarial pre-deployment audit
+— see §13): graph-builder linkage/tagging unit tests (`tests/test_graph.py`,
+`tests/test_graph_adversarial.py`), decision-algorithm unit tests including
+the ESCALATE margin band (`tests/test_decision.py`), the policy-data-not-code
 proof (`tests/test_policy_data_not_code.py` — runs Attack 2 through the
 *same* `engine.session_runner.run_session` function once with the
 vendor-only policy [misses it] and once with the full policy [catches
 it], plus a static check that `/engine/*.py` never names a specific
-conflict class, vendor, or attack), the Baseline-Strong Attack-2-miss
-proof (`tests/test_baseline_strong_misses_attack2.py`), and the full
+conflict class, vendor, or attack), a stronger genericity proof using a
+structurally different, non-shipped conflict class
+(`tests/test_third_conflict_class_generic_proof.py`), false-positive
+probes (`tests/test_false_positives.py`), a fairness guard keeping
+Baseline-Strong's hardcoded thresholds in sync with real policy
+(`tests/test_baseline_strong_fairness.py`), API input-validation
+regressions (`tests/test_api_security.py`), the Baseline-Strong
+Attack-2-miss proof (`tests/test_baseline_strong_misses_attack2.py`), and the full
 30-session integration run (`tests/test_benchmark_integration.py`).
 
 ## 5. Full 30-session benchmark results (actual numbers)
@@ -294,3 +304,76 @@ README).
   benchmark table all confirmed against the real backend), but received
   no dedicated visual-polish pass per §15's deprioritization — a11y
   labeling, mobile layout, and animation are all unaddressed.
+
+## 13. Pre-deployment audit (2026-09-17)
+
+An adversarial audit was run against this repository before any AWS
+deployment, explicitly trying to disprove the claims above rather than
+confirm them. Full findings, severities, and reproduction commands are
+below; nothing here was taken on faith — every claim was independently
+re-derived from raw per-session output, not from the repo's own
+aggregation code.
+
+**Result: all 12 audit sections pass.** One genuine genericity gap was
+found and fixed (not merely documented):
+
+- **`engine/graph.py`'s coarse ancestor-linkage fallback was hardcoded to
+  the Python attribute `vendor_id`** rather than being policy-declared.
+  This never affected any benchmark outcome (compartment-bearing nodes
+  are seeded directly via `payload_refs`, not via this fallback), but it
+  was a real, if narrow, violation of "no domain concept hardcoded in
+  `engine/`" — confirmed by first proving, empirically, that a naive
+  fully-generic fallback (linking on *any* shared policy-keyed attribute)
+  would introduce a false positive (two different vendors' invoices
+  sharing only a quarter would wrongly merge into one ancestor closure).
+  Fixed by moving the fallback attribute into policy data
+  (`policy/conflict_classes.yaml`'s new `linkage_attribute: vendor_id`
+  key, read by `engine/policy.py` into `Policy.linkage_attribute`) rather
+  than widening it. All 30 benchmark outcomes are bit-identical before
+  and after.
+- Two API endpoints (`POST /api/sessions`, `POST /api/sessions/{id}/evaluate`)
+  returned an unhandled 500 on invalid input (unknown tool name, unknown
+  policy variant) instead of a 400 — fixed in `api/main.py`; regression
+  tests in `tests/test_api_security.py`.
+- The WebSocket's client-supplied `delay_ms` had no upper bound — clamped
+  to 5000ms in `api/main.py`.
+- Baseline-Strong's docstring imprecisely called itself fully "stateless"
+  while it does accumulate a resource→vendor lookup across a session's
+  calls; reworded for accuracy in `baselines/strong.py` (its threshold
+  values were already exactly the real `policy/clearances.yaml` numbers,
+  now pinned by a regression test in `tests/test_baseline_strong_fairness.py`).
+
+No other violations were found: no attack/vendor/class names anywhere in
+`engine/`, no randomness/timestamps/UUIDs anywhere in the decision path,
+byte-for-byte identical benchmark output across repeated clean runs, the
+local API and the AWS Lambda adapter produce byte-identical decisions and
+traces for all 30 fixtures (confirmed via literal function-object
+identity, not just equal output), and the frontend never sets a decision
+value from anything but a real backend response. See the conversation
+this audit was run in for the full per-section report (A–F); the
+short version:
+
+| Section | Result |
+|---|---|
+| 1. Benchmark re-verified from scratch | PASS — confusion matrices match exactly (see §5/§6 above) |
+| 2. No attack-specific code in `engine/` | PASS (after the `linkage_attribute` fix) |
+| 3. Policy-data-vs-code, third synthetic class | PASS — provenance-keyed class detected correctly, zero `engine/*.py` bytes changed |
+| 4. Baseline-Strong fairness | PASS — real thresholds, plausible single-rule scope, now regression-tested |
+| 5. False positives | PASS — 6 new adversarial scenarios added, all correctly ALLOW |
+| 6. Graph logic | PASS — 5 new adversarial scenarios added (duplicates, ordering, session isolation, dangling refs, post-sink calls) |
+| 7. AWS/local engine parity | PASS — literal function identity + byte-identical output on all 30 fixtures |
+| 8. Reproducibility | PASS — 3x clean reruns of tests and benchmark, byte-identical |
+| 9. Frontend honesty | PASS — no client-side decision fabrication found |
+| 10. Security review | 2 input-validation bugs fixed, CORS/no-auth documented as demo-scope, no secrets/unsafe YAML/injection found |
+| 11. README truth audit | Stale test count corrected; no overclaiming found |
+| 12. Deployment readiness | Ready for `sam deploy` at your discretion — nothing deployed from here |
+
+**Reproduce it yourself:**
+
+```bash
+rm -rf benchmark/results .pytest_cache && find . -name __pycache__ -not -path "./.venv/*" -not -path "./frontend/*" -exec rm -rf {} +
+source .venv/bin/activate
+pytest -q                              # 37/37
+python -m benchmark.runner > benchmark/results/results.json 2> benchmark/results/summary.txt
+cat benchmark/results/summary.txt      # matches §5 above exactly
+```

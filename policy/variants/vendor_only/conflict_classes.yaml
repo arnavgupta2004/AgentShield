@@ -6,6 +6,8 @@
 #
 # annual_spend_synthesis is deliberately absent.
 
+linkage_attribute: vendor_id
+
 conflict_classes:
   vendor_pricing_confidentiality:
     description: >

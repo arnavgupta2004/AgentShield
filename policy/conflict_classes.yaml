@@ -12,6 +12,17 @@
 # Adding a new conflict class -- e.g. to catch a new aggregation pattern
 # -- requires ONLY an edit here (and a matching clearance entry in
 # clearances.yaml). /engine/ never changes.
+#
+# linkage_attribute: the single resource attribute engine/graph.py treats
+# as "same underlying business object" for coarse graph linkage -- e.g.
+# pulling a search_vendor_db call (no period) into an invoice's ancestor
+# closure because they share a vendor. This is deliberately a single
+# named attribute, not every attribute any class happens to key on:
+# linking on any shared attribute (e.g. two different vendors' invoices
+# merely falling in the same quarter) would wrongly merge unrelated
+# vendors' data into one ancestor closure. See engine/graph.py:_linked
+# and tests/test_false_positives.py.
+linkage_attribute: vendor_id
 
 conflict_classes:
   vendor_pricing_confidentiality:

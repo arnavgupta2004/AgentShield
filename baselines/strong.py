@@ -1,17 +1,27 @@
-"""Baseline-Strong: a stateless, per-request, Cedar-style point rule.
+"""Baseline-Strong: a per-request, Cedar-style point rule.
 
 This is a *separate*, simpler implementation from engine/ -- it does not
-use the session graph or the ancestor-closure algorithm at all. For each
-`send_notification` request it looks only at the vendors named in that
-one request's payload_refs (a shallow, single-hop lookup of resources it
-has already seen in this stream -- not a multi-hop graph traversal) and
-applies exactly one hardcoded rule: cross-vendor pricing confidentiality.
+use the session graph or the ancestor-closure algorithm at all, has no
+compartment/conflict-class abstraction, and evaluates only ONE rule:
+cross-vendor pricing confidentiality, using the SAME threshold values as
+policy/clearances.yaml's vendor_pricing_confidentiality entries (1 for
+alex_categorymgr, 5 for finance_director) -- not weakened numbers.
 
-It has no notion of quarters/periods whatsoever, so it structurally
-cannot catch Attack 2 (which is single-vendor). This is not a bug to
-"fix" -- a real security team plausibly ships exactly this rule after
-Attack 1's pattern becomes known, and the honest gap it leaves is the
-point of the baseline comparison (see repository README).
+It is "stateless" in the sense that matters for the comparison: no
+session graph, no ancestor closure, no multi-call compartment reasoning,
+and (critically) no notion of quarters/periods whatsoever, so it
+structurally cannot catch Attack 2. It does maintain a resource_id ->
+vendor_id lookup as calls stream past, on the realistic assumption that a
+send_notification request's payload carries basic entity attributes for
+what it's referencing (the same assumption Cedar's own entity/context
+store would make) -- this is the SAME information a competent security
+engineer would have on hand for exactly this rule, not a self-imposed
+handicap and not extra help either.
+
+This is not a bug to "fix" -- a real security team plausibly ships
+exactly this rule after Attack 1's pattern becomes known, and the honest
+gap it leaves on Attack 2 is the point of the baseline comparison (see
+repository README).
 """
 from __future__ import annotations
 

@@ -24,6 +24,7 @@ def _test_policy() -> Policy:
         clearances={
             "alex_categorymgr": {"vendor_pricing_confidentiality": 1, "annual_spend_synthesis": 2},
         },
+        linkage_attribute="vendor_id",
         tools={
             "read_invoice": ToolSpec(name="read_invoice", sink=False),
             "search_vendor_db": ToolSpec(name="search_vendor_db", sink=False),

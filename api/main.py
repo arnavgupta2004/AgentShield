@@ -100,7 +100,10 @@ def get_fixture(session_id: str):
 def submit_session(submission: SessionSubmission):
     """Register a custom trajectory for later replay via the WebSocket
     endpoint, e.g. for demo scripting beyond the canned fixture set."""
-    calls = [ToolCallSpec(**c.model_dump()) for c in submission.calls]
+    try:
+        calls = [ToolCallSpec(**c.model_dump()) for c in submission.calls]
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
     _custom_sessions[submission.session_id] = calls
     return {"session_id": submission.session_id, "num_calls": len(calls)}
 
@@ -113,7 +116,10 @@ def evaluate_session(session_id: str, system: str = "AgentShield", policy_varian
     run_fn = RUN_FUNCS.get(system)
     if run_fn is None:
         raise HTTPException(400, f"unknown system {system!r}; choose one of {system_names()}")
-    policy = policy_for(policy_variant)
+    try:
+        policy = policy_for(policy_variant)
+    except KeyError as exc:
+        raise HTTPException(400, str(exc)) from exc
     result = run_fn(calls, session_id, policy)
     return {
         "session_id": session_id,
@@ -152,6 +158,7 @@ async def stream_session_ws(
     delay_ms: int = 250,
 ):
     await websocket.accept()
+    delay_ms = max(0, min(delay_ms, 5000))  # bound a client-supplied delay
 
     calls = _lookup_calls(session_id)
     if calls is None:

@@ -56,7 +56,23 @@ class SessionGraph:
 
     def _linked(self, a: CallNode, b: CallNode) -> bool:
         """Two nodes are graph-linked if they share a resource attribute
-        that at least one declared conflict class uses to key compartments."""
+        that at least one declared conflict class uses to key compartments,
+        OR if they share policy's single declared coarse linkage attribute
+        (e.g. vendor_id) -- which pulls in supporting context nodes (like a
+        search_vendor_db call) that a period-scoped class can't tag by
+        itself, without those two nodes needing to also match on every
+        other attribute a multi-attribute class's compartment_key lists.
+
+        The coarse attribute is read from `policy.linkage_attribute`, not
+        hardcoded here, so engine/ carries no fixed opinion about which
+        resource attribute represents "the same underlying business
+        object" across conflict classes -- that's a policy choice.
+        Note it's a SINGLE named attribute, not "any attribute any class
+        happens to key on": linking on every shared attribute (e.g. two
+        different vendors' invoices that merely fall in the same period)
+        would wrongly pull unrelated vendors' data into one ancestor
+        closure -- see tests/test_false_positives.py.
+        """
         if a.call_id == b.call_id:
             return False
         for cc in self.policy.conflict_classes.values():
@@ -66,12 +82,11 @@ class SessionGraph:
                     for attr in cc.compartment_key
                 ):
                     return True
-            # coarse linkage: sharing just vendor_id also links nodes even
-            # when a period-scoped class can't tag one of them (e.g. a
-            # search_vendor_db call has no period but is still relevant
-            # context for a vendor's invoices).
-        if a.vendor_id is not None and a.vendor_id == b.vendor_id:
-            return True
+        attr = self.policy.linkage_attribute
+        if attr:
+            av, bv = getattr(a, attr, None), getattr(b, attr, None)
+            if av is not None and av == bv:
+                return True
         return False
 
     def ancestor_closure(self, sink: CallNode) -> list[CallNode]:
