@@ -1,0 +1,6 @@
+recipients:
+  alex_categorymgr:
+    vendor_pricing_confidentiality: 1
+
+  finance_director:
+    vendor_pricing_confidentiality: 5

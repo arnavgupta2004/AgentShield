@@ -1,0 +1,15 @@
+# Attack-1-only policy variant, used to (a) drive Baseline-Strong,
+# a well-configured but incomplete point-rule evaluator, and (b) prove
+# in tests/test_policy_data_not_code.py that AgentShield's own engine,
+# loaded with this policy alone, also misses Attack 2 -- because the
+# gap is in the DATA, not because the engine special-cases attacks.
+#
+# annual_spend_synthesis is deliberately absent.
+
+conflict_classes:
+  vendor_pricing_confidentiality:
+    description: >
+      Comparative pricing/terms data from two or more distinct vendors,
+      synthesized together and delivered to one recipient.
+    compartment_key: [vendor_id]
+    margin: 0

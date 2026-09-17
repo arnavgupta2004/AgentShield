@@ -1,0 +1,30 @@
+# Conflict-class registry -- POLICY DATA, not code.
+#
+# Each conflict class declares:
+#   compartment_key: the resource attribute names that define a distinct
+#     "compartment member" of this class. A node is tagged as a member
+#     of the class iff it carries every listed attribute.
+#   margin: how many members past the recipient's clearance threshold
+#     are tolerated as ESCALATE (human-approval-pending) before the
+#     decision becomes BLOCK. margin: 0 means any count over threshold
+#     is an immediate BLOCK.
+#
+# Adding a new conflict class -- e.g. to catch a new aggregation pattern
+# -- requires ONLY an edit here (and a matching clearance entry in
+# clearances.yaml). /engine/ never changes.
+
+conflict_classes:
+  vendor_pricing_confidentiality:
+    description: >
+      Comparative pricing/terms data from two or more distinct vendors,
+      synthesized together and delivered to one recipient.
+    compartment_key: [vendor_id]
+    margin: 0
+
+  annual_spend_synthesis:
+    description: >
+      Per-quarter spend figures for a single vendor, synthesized across
+      multiple quarters into a near-annual (or full-annual) spend
+      picture for one recipient.
+    compartment_key: [vendor_id, period]
+    margin: 0

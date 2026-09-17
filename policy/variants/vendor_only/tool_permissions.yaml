@@ -1,0 +1,26 @@
+# Tool declarations -- POLICY DATA.
+#
+# `sink: true` marks a tool whose call is the point where synthesized
+# data leaves the session boundary to a recipient (notification, draft
+# payment). Only sink calls are evaluated by the decision algorithm;
+# non-sink calls just extend the session graph.
+
+tools:
+  read_invoice:
+    sink: false
+    read_only: true
+  read_purchase_order:
+    sink: false
+    read_only: true
+  search_vendor_db:
+    sink: false
+    read_only: true
+  update_vendor_record:
+    sink: false
+    read_only: false
+  create_draft_payment:
+    sink: true
+    read_only: false
+  send_notification:
+    sink: true
+    read_only: false

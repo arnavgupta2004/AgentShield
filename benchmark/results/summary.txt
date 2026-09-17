@@ -1,0 +1,18 @@
+
+=== Metrics ===
+Baseline-Naive: {'tp': 0, 'fp': 0, 'tn': 18, 'fn': 12, 'precision': 1.0, 'recall': 0.0, 'f1': 0.0}
+Baseline-Strong: {'tp': 6, 'fp': 0, 'tn': 18, 'fn': 6, 'precision': 1.0, 'recall': 0.5, 'f1': 0.6667}
+AgentShield: {'tp': 12, 'fp': 0, 'tn': 18, 'fn': 0, 'precision': 1.0, 'recall': 1.0, 'f1': 1.0}
+
+=== FPR (benign+near-miss subset) ===
+Baseline-Naive: 0.0
+Baseline-Strong: 0.0
+AgentShield: 0.0
+
+=== Attack breakdown ===
+Baseline-Naive::attack1: 0/6
+Baseline-Naive::attack2: 0/6
+Baseline-Strong::attack1: 6/6
+Baseline-Strong::attack2: 0/6
+AgentShield::attack1: 6/6
+AgentShield::attack2: 6/6

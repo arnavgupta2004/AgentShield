@@ -1,0 +1,17 @@
+# Per-recipient clearance thresholds -- POLICY DATA.
+#
+# clearance[recipient][conflict_class] = max number of distinct
+# compartment members of that class the recipient may receive
+# synthesized together in one sink call.
+#
+# Every recipient must declare a threshold for every conflict class
+# in conflict_classes.yaml (enforced at load time by engine/policy.py).
+
+recipients:
+  alex_categorymgr:
+    vendor_pricing_confidentiality: 1
+    annual_spend_synthesis: 2
+
+  finance_director:
+    vendor_pricing_confidentiality: 5
+    annual_spend_synthesis: 5
