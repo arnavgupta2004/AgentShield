@@ -45,7 +45,10 @@ DynamoDB provisioned for the intended production policy/session-state
 architecture. Not a mockup: it's deployed and live right now in
 `ap-south-1`, and 30/30 benchmark fixtures are byte-identical between the
 local engine and the deployed Lambda (§3, §7, §13). The frontend's "AWS
-Lambda (live)" option calls it directly, on stage, in real time.
+Lambda (live)" option calls it directly, on stage, in real time. The
+public endpoint also has no-auth stage-wide throttling and an AWS Budget
+cost alert in front of it (§3) — a small, deliberate bit of production-
+mindedness, not just a demo left wide open.
 
 **Learning.** Building the two baselines ourselves, then adversarially
 auditing our own engine before deployment, surfaced real lessons about
@@ -193,8 +196,25 @@ is set (it is, by default — see §3), the Live Demo system selector also
 offers **"AWS Lambda (live)"**, which evaluates the selected fixture
 against the real deployed endpoint instead of the local engine (single
 request/response, no streaming, since the Lambda has no WebSocket route)
-— proxied via `/aws-api` so the browser's request stays same-origin (the
-deployed API has no CORS headers for a browser to call it directly).
+— proxied via `/aws-api` so the browser's request stays same-origin, same
+as before the API Gateway had CORS enabled (kept for local dev either
+way, since it's simple and already worked).
+
+**Production build (`npm run build`)** is deployable as a static site with
+*no* local backend at all: fixture listing/detail and the benchmark
+table's initial view are served from data snapshots bundled at build time
+(`frontend/src/data/`, generated straight from `fixtures/sessions.py` and
+the committed `benchmark/results/results.json` — real data, not
+invented), and "AWS Lambda (live)" calls `VITE_AWS_API_BASE_URL` directly
+rather than through the dev-only proxy, now that the API Gateway has CORS
+enabled (see §3). Local systems (Baseline-Naive/Strong, streamed
+AgentShield, benchmark re-run) still need a local backend and simply
+aren't offered in that build — nothing is faked in their place. Verified
+in complete isolation (`vite preview` with every local server killed,
+zero `/api/*` calls observed) against the real deployed Lambda.
+`amplify.yml` at the repo root is a ready-to-connect AWS Amplify Hosting
+build spec for this — not yet connected to a live Amplify app as of this
+writing (see §12).
 
 ## 3. AWS deployment instructions
 
@@ -212,6 +232,22 @@ after deploy" section for details and exact output). The single
 `VITE_AWS_API_BASE_URL` value in `frontend/.env.development` /
 `.env.production` is the only place this URL is configured for the
 frontend — see §2's frontend note.
+
+**Public-facing hardening (2026-09-18), no auth added:** the API Gateway
+stage now has CORS enabled (`Access-Control-*` headers, confirmed live by
+curl and by a browser making a real cross-origin call — see §13) and
+conservative, no-API-key stage-wide throttling (`ThrottlingRateLimit: 2`,
+`ThrottlingBurstLimit: 10` — a click-through demo never notices this; a
+genuinely concurrent burst does, confirmed live: 25 of 30 simultaneous
+requests correctly received `429` in a one-shot controlled test). A
+`AWS::Budgets::Budget` resource (`agentshield-cost-alert`, $10/month,
+email alert at 80% actual spend — **alert only, nothing is throttled or
+torn down automatically**) is also provisioned in `infra/template.yaml`
+for early warning, not enforcement. None of this touches the decision
+engine or any other resource — verified by `git diff` scoping to
+`infra/template.yaml` alone, the full test suite staying at 37/37, and a
+live Attack-1 request still returning the identical `BLOCK` +
+`vendor_pricing_confidentiality` trace as before.
 
 ![The frontend's "AWS Lambda (live)" option evaluating Attack 1 against the real deployed endpoint — same BLOCK, same trace as the local engine](docs/screenshots/03-aws-lambda-live.png)
 
@@ -435,6 +471,15 @@ README).
   (see `infra/DEPLOY.md`'s "Known limitations"). Use the frontend's new
   "AWS Lambda (live)" system option to demo the real deployment
   specifically, and the local systems for everything else.
+- **The frontend is prepared to deploy to AWS Amplify Hosting
+  (`amplify.yml`) but isn't connected to a live Amplify app yet** — the
+  one remaining step for a public, zero-setup demo URL is connecting
+  this GitHub repo in the Amplify Console (New app → Host web app →
+  this repo → branch `main`; it should auto-detect `amplify.yml`, app
+  root `frontend`). Everything that build needs is already in place and
+  verified locally in complete isolation against the real deployed
+  Lambda (see §2's frontend note) — this is a hosting/connection step,
+  not unfinished code.
 - No CI workflow file is included (e.g. GitHub Actions running `pytest`
   on push) — worth adding before the submission deadline if judges will
   look for it, but was out of the strict build-priority order (spec
@@ -517,3 +562,39 @@ pytest -q                              # 37/37
 python -m benchmark.runner > benchmark/results/results.json 2> benchmark/results/summary.txt
 cat benchmark/results/summary.txt      # matches §5 above exactly
 ```
+
+## 14. Public-facing hardening addendum (2026-09-18)
+
+Two changes to `infra/template.yaml` only (`git diff` confirms nothing
+else touched) — CORS for the static-site frontend (§2), and no-auth
+abuse/cost protection, since the API is now meant to be called from a
+public browser, not just curl:
+
+- **CORS**: SAM's `Cors:` property on `AgentShieldApi` plus matching
+  `Access-Control-*` response headers added to `infra/lambda_handler.py`
+  (Lambda proxy integration doesn't emit these automatically the way a
+  mock integration would). Verified live: a direct `curl` to the
+  deployed URL now returns `access-control-allow-origin: *`, and the
+  actual production frontend build, served with every local server
+  killed, makes a genuine cross-origin `fetch()` to the real Lambda URL
+  and renders the correct `BLOCK` + trace (confirmed via browser
+  network/console, zero errors).
+- **Throttling**: stage-wide `MethodSettings` (`ThrottlingRateLimit: 2`,
+  `ThrottlingBurstLimit: 10`) — no API key, no usage plan, applies to
+  every caller equally. Verified live: sequential requests (normal
+  click-through pacing) never triggered it; a one-shot concurrent burst
+  of 30 simultaneous requests did — 25/30 correctly received `429`.
+  (Occasional `500`s observed in two other 30-request trials traced, via
+  CloudWatch, to zero Lambda invocations for those requests — i.e. API
+  Gateway itself under artificial simultaneous load, not the decision
+  engine; not reproducible with normal sequential traffic.)
+- **Cost alert**: `AWS::Budgets::Budget` (`agentshield-cost-alert`,
+  $10/month, email notification at 80% actual spend) — an alert only,
+  confirmed via `aws budgets describe-budgets` / `describe-notifications-
+  for-budget`; nothing is throttled, disabled, or torn down
+  automatically if it fires.
+
+Full test suite re-confirmed at 37/37 both before and after, and a live
+Attack 1 request against the deployed endpoint still returns the
+identical `BLOCK` / `vendor_pricing_confidentiality` decision and trace
+as before any of this — the engine itself was never touched.
