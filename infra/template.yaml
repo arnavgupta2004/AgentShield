@@ -57,6 +57,19 @@ Resources:
         AllowOrigin: "'*'"
         AllowMethods: "'POST, OPTIONS'"
         AllowHeaders: "'Content-Type'"
+      # Conservative, no-auth abuse/cost protection: stage-level default
+      # throttling applied to every method/resource, so it protects the
+      # public endpoint without requiring an API key or any change to
+      # who can call it. ~2 req/s steady-state comfortably covers a
+      # person clicking through the demo (one call per click); a burst
+      # of 10 absorbs several quick clicks in a row. Sustained abuse
+      # beyond that gets a native API Gateway 429 before Lambda is ever
+      # invoked, rather than continuing to invoke (and pay for) it.
+      MethodSettings:
+        - ResourcePath: "/*"
+          HttpMethod: "*"
+          ThrottlingRateLimit: 2
+          ThrottlingBurstLimit: 10
 
   # Intended production home for policy/*.yaml's content (conflict
   # classes, clearance thresholds). Provisioned here so the schema and
@@ -101,6 +114,33 @@ Resources:
       TimeToLiveSpecification:
         AttributeName: ttl
         Enabled: true
+
+  # Cost-alert only -- NOT a spending shutdown. Tracks total account
+  # spend (this hackathon account has no other production workload, so
+  # an account-wide budget is the simplest accurate signal; it doesn't
+  # touch or modify any other resource). $10/month is intentionally low
+  # for a serverless demo that should cost cents; a single ACTUAL-spend
+  # notification at 80% ($8) emails a warning -- nothing is throttled,
+  # disabled, or deleted automatically if this fires.
+  CostAlertBudget:
+    Type: AWS::Budgets::Budget
+    Properties:
+      Budget:
+        BudgetName: !Sub "${AWS::StackName}-cost-alert"
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit:
+          Amount: 10
+          Unit: USD
+      NotificationsWithSubscribers:
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 80
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: mr.guptarnav@gmail.com
 
 Outputs:
   ApiUrl:
