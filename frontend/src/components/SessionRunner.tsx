@@ -30,7 +30,17 @@ export default function SessionRunner() {
       setFixtures(fx)
       if (fx.length) setSessionId(fx[0].session_id)
     })
-    fetchSystems().then(setSystems)
+    fetchSystems().then((s) => {
+      setSystems(s)
+      // Default selection ('AgentShield') only exists when a local
+      // backend is reachable. Without one (e.g. a static production
+      // build with only the AWS Lambda available), fall back to
+      // whatever's actually selectable instead of silently keeping a
+      // stale value that matches no <option> in the dropdown.
+      if (!s.includes('AgentShield') && AWS_API_BASE_URL) {
+        setSystem(AWS_SYSTEM)
+      }
+    })
     return () => closeRef.current?.()
   }, [])
 

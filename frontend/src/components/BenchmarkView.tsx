@@ -14,8 +14,13 @@ export default function BenchmarkView() {
 
   async function reRun() {
     setLoading(true)
-    setResults(await runBenchmark())
-    setLoading(false)
+    try {
+      setResults(await runBenchmark())
+    } catch (err) {
+      alert(err instanceof Error ? err.message : String(err))
+    } finally {
+      setLoading(false)
+    }
   }
 
   if (!results) return <div className="panel muted-panel">Loading benchmark results…</div>

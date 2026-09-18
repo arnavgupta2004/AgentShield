@@ -28,7 +28,18 @@ _POLICY = load_policy(_POLICY_DIR)
 def _response(status: int, body: dict) -> dict:
     return {
         "statusCode": status,
-        "headers": {"Content-Type": "application/json"},
+        # CORS headers: Lambda proxy integration means API Gateway does
+        # not add these on its own -- SAM's `Cors:` property (see
+        # template.yaml) only auto-generates the OPTIONS preflight
+        # response; the actual POST response has to carry them itself.
+        # This does not change the decision logic at all, only who is
+        # allowed to read the response.
+        "headers": {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "POST, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type",
+        },
         "body": json.dumps(body),
     }
 

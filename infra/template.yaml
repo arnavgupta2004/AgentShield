@@ -39,6 +39,24 @@ Resources:
     Properties:
       StageName: prod
       TracingEnabled: true
+      # Smallest safe production config needed for the static frontend
+      # (deployed separately, e.g. to AWS Amplify) to call this API
+      # directly from a browser -- confirmed via a live OPTIONS/POST
+      # check that without this, browsers block the request entirely.
+      # SAM auto-generates the OPTIONS preflight handling for every
+      # path/method declared under Events; the actual POST response
+      # still needs the same headers, added by the Lambda itself (see
+      # infra/lambda_handler.py's _response helper) since this uses
+      # Lambda proxy integration, not a mock integration. No new
+      # resource, no change to the function's decision logic, no
+      # authentication added -- this API returns no sensitive/user-
+      # specific data, so a wildcard origin is an intentional,
+      # cost-conscious choice for a public hackathon demo, not an
+      # oversight.
+      Cors:
+        AllowOrigin: "'*'"
+        AllowMethods: "'POST, OPTIONS'"
+        AllowHeaders: "'Content-Type'"
 
   # Intended production home for policy/*.yaml's content (conflict
   # classes, clearance thresholds). Provisioned here so the schema and
